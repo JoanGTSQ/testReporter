@@ -1,0 +1,101 @@
+package dev.joangoma.testReporter.reporter;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import dev.joangoma.testReporter.ExtentReports;
+import dev.joangoma.testReporter.Status;
+import dev.joangoma.testReporter.model.service.TestService;
+import dev.joangoma.testReporter.templating.FreemarkerTemplate;
+import dev.joangoma.testReporter.templating.TemplateConfig;
+import dev.joangoma.testReporter.view.Ico;
+
+import freemarker.ext.beans.BeansWrapper;
+import freemarker.ext.beans.BeansWrapperBuilder;
+import freemarker.template.Configuration;
+import freemarker.template.Template;
+import freemarker.template.TemplateException;
+import freemarker.template.TemplateHashModel;
+import freemarker.template.TemplateModelException;
+import lombok.Getter;
+
+@Getter
+public abstract class AbstractFileReporter extends AbstractFilterableReporter {
+    private static final Logger LOG = Logger.getLogger(AbstractFileReporter.class.getName());
+    protected static final String PATH_SEP = "/";
+
+    private File file;
+    private Map<String, Object> templateModel;
+    private Configuration freemarkerConfig;
+
+    protected AbstractFileReporter(File f) {
+        this.file = f;
+        File parentFile;
+        if (Files.isDirectory(f.toPath())) {
+            parentFile = f;
+        } else {
+            parentFile = f.getParentFile();
+        }
+        if (parentFile != null && !parentFile.exists())
+            parentFile.mkdirs();
+    }
+
+    protected void loadTemplateModel() {
+        if (templateModel != null)
+            return;
+
+        templateModel = new HashMap<>();
+        BeansWrapperBuilder builder = new BeansWrapperBuilder(Configuration.VERSION_2_3_30);
+        BeansWrapper beansWrapper = builder.build();
+
+        try {
+            TemplateHashModel fieldTypeModel = (TemplateHashModel) beansWrapper.getEnumModels()
+                    .get(Status.class.getName());
+            templateModel.put("Status", fieldTypeModel);
+            fieldTypeModel = (TemplateHashModel) beansWrapper.getStaticModels()
+                    .get(Ico.class.getName());
+            templateModel.put("Ico", fieldTypeModel);
+            fieldTypeModel = (TemplateHashModel) beansWrapper.getStaticModels()
+                    .get(TestService.class.getName());
+            templateModel.put("TestService", fieldTypeModel);
+        } catch (TemplateModelException e) {
+            LOG.log(Level.SEVERE, "", e);
+        }
+    }
+
+    protected void processTemplate(Template template, File outputFile) throws TemplateException, IOException {
+        FreemarkerTemplate freemarkerTemplate = new FreemarkerTemplate(getFreemarkerConfig());
+        freemarkerTemplate.writeTemplate(template, templateModel, outputFile);
+    }
+
+    protected Configuration createFreemarkerConfig(String templatePath, String encoding) {
+        if (freemarkerConfig == null) {
+            TemplateConfig freemarkerConfig = new TemplateConfig();
+            this.freemarkerConfig = freemarkerConfig.getFreemarkerConfig(ExtentReports.class, templatePath,
+                    encoding);
+        }
+        return freemarkerConfig;
+    }
+
+    protected String getFileNameAsExt(String fileName, String[] checkExt) {
+        if (checkExt.length == 0)
+            return fileName;
+        String path = getFile().getPath();
+        final String filePath = (getFile().isDirectory()
+                || path.indexOf(".") == -1)
+                && !Arrays.stream(checkExt).anyMatch(x -> path.endsWith(x))
+                        ? getFile().getAbsolutePath()
+                                + PATH_SEP + fileName
+                        : getFile().getAbsolutePath();
+        boolean b = Arrays.stream(checkExt).anyMatch(x -> filePath.endsWith(x));
+        String resolved = b ? filePath : filePath + checkExt[0];
+        new File(resolved).getParentFile().mkdirs();
+        return resolved;
+    }
+}
